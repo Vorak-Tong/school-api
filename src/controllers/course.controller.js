@@ -55,31 +55,59 @@ export const createCourse = async (req, res) => {
  *         name: limit
  *         schema: { type: integer, default: 10 }
  *         description: Number of items per page
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string, enum: [asc, desc], default: desc }
+ *         description: Sort order
+ *       - in: query
+ *         name: populate
+ *         schema: { type: string }
+ *         description: Include related models (e.g., "Teacher,Student")
  *     responses:
  *       200:
  *         description: List of courses
  */
 export const getAllCourses = async (req, res) => {
-
-    // take certain amount at a time
-    const limit = parseInt(req.query.limit) || 10;
-    // which page to take
-    const page = parseInt(req.query.page) || 1;
-
-    const total = await db.Course.count();
-
     try {
-        const courses = await db.Course.findAll(
-            {
-                // include: [db.Student, db.Teacher],
-                limit: limit, offset: (page - 1) * limit
+        // pagination
+        const limit = parseInt(req.query.limit) || 10;
+        const page = parseInt(req.query.page) || 1;
+        const offset = (page - 1) * limit;
+
+        // sorting
+        const sort = req.query.sort === 'asc' ? 'ASC' : 'DESC';
+
+        // eager loading
+        const populate = req.query.populate;
+        let includeOptions = [];
+
+        if(populate) {
+            const populateArray = populate.split(',');
+            if(populateArray.includes('teacher')){
+                includeOptions.push(db.Teacher);
             }
-        );
+            if(populateArray.includes('student')){
+                includeOptions.push(db.Student);
+            }
+        }
+
+        // get total count for pagination pages
+        const total = await db.Course.count();
+
+        const courses = await db.Course.findAll({
+            include: includeOptions,
+            limit: limit,
+            offset: offset,
+            order: [['createdAt', sort]]
+        })
+
         res.json({
             meta: {
                 totalItems: total,
                 page: page,
                 totalPages: Math.ceil(total / limit),
+                limit: limit,
+                sort: sort.toLowerCase()
             },
             data: courses,
         });
@@ -99,6 +127,10 @@ export const getAllCourses = async (req, res) => {
  *         name: id
  *         required: true
  *         schema: { type: integer }
+ *       - in: query
+ *         name: populate
+ *         schema: { type: string }
+ *         description: Include related models (e.g., "Teacher,Student")
  *     responses:
  *       200:
  *         description: Course found
@@ -107,8 +139,25 @@ export const getAllCourses = async (req, res) => {
  */
 export const getCourseById = async (req, res) => {
     try {
-        const course = await db.Course.findByPk(req.params.id, { include: [db.Student, db.Teacher] });
-        if (!course) return res.status(404).json({ message: 'Not found' });
+        // eager loading
+        const populate = req.query.populate;
+        let includeOptions = [];
+
+        if(populate) {  
+            const populateArray = populate.split(',');
+            if(populateArray.includes('teacher')){
+                includeOptions.push(db.Teacher);
+            }
+            if(populateArray.includes('student')){
+                includeOptions.push(db.Student);
+            }
+        }
+
+        const course = await db.Course.findByPk(req.params.id, {
+            include: includeOptions
+        })
+
+        if(!course) return res.status(404).json({ messsage: 'Not found' });
         res.json(course);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -130,10 +179,20 @@ export const getCourseById = async (req, res) => {
  *       required: true
  *       content:
  *         application/json:
- *           schema: { type: object }
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               TeacherId:
+ *                type: integer
  *     responses:
  *       200:
  *         description: Course updated
+ *       404:
+ *         description: Not found
  */
 export const updateCourse = async (req, res) => {
     try {
@@ -160,7 +219,9 @@ export const updateCourse = async (req, res) => {
  *     responses:
  *       200:
  *         description: Course deleted
- */
+ *       404:
+ *         description: Not found
+ */ 
 export const deleteCourse = async (req, res) => {
     try {
         const course = await db.Course.findByPk(req.params.id);
