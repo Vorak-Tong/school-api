@@ -23,12 +23,17 @@ import db from '../models/index.js';
  *             properties:
  *               name:
  *                 type: string
+ *                 example: John Smith
  *               department:
  *                 type: string
+ *                 example: Mathematics
  *     responses:
  *       201:
- *         description: Teacher created
+ *         description: Teacher created successfully
+ *       500:
+ *         description: Internal server error
  */
+
 export const createTeacher = async (req, res) => {
     try {
         const teacher = await db.Teacher.create(req.body);
@@ -47,70 +52,108 @@ export const createTeacher = async (req, res) => {
  *     parameters:
  *       - in: query
  *         name: page
- *         schema: { type: integer, default: 1 }
+ *         schema:
+ *           type: integer
+ *           default: 1
  *         description: Page number
  *       - in: query
  *         name: limit
- *         schema: { type: integer, default: 10 }
+ *         schema:
+ *           type: integer
+ *           default: 10
  *         description: Number of items per page
  *       - in: query
  *         name: sort
- *         schema: { type: string, enum: [asc, desc], default: desc }
- *         description: Sort order by creation date
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: asc
+ *         description: Sort order (asc or desc)
  *       - in: query
- *         name: populate
- *         schema: { type: string }
- *         description: Include related data (courses)
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [id, name, department, createdAt, updatedAt]
+ *           default: id
+ *         description: Sort by field
  *     responses:
  *       200:
- *         description: List of teachers with pagination metadata
+ *         description: List of teachers with metadata
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     totalItems:
+ *                       type: integer
+ *                     page:
+ *                       type: integer
+ *                     totalPages:
+ *                       type: integer
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       department:
+ *                         type: string
+ *                       createdAt:
+ *                         type: string
+ *                       updatedAt:
+ *                         type: string
+ *                       Courses:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: integer
+ *                             title:
+ *                               type: string
+ *                             description:
+ *                               type: string
  */
 
 export const getAllTeachers = async (req, res) => {
-    try {
-        // Pagination
-        const limit = parseInt(req.query.limit) || 10;
-        const page = parseInt(req.query.page) || 1;
-        const offset = (page - 1) * limit;
-        
-        // Sorting
-                const sort = req.query.sort === 'asc' ? 'ASC' : 'DESC';
-        
-        // Eager loading
-        const populate = req.query.populate;
-        let includeOptions = [];
-        
-        if(populate){
-            const populateArray = populate.split(',');
-            if(populateArray.includes('courses')){
-                includeOptions.push(db.Course);
-            }
-        }
+  const limit = parseInt(req.query.limit) || 10;
+  const page = parseInt(req.query.page) || 1;
 
-        // Get total count for pagination
-        const total = await db.Teacher.count();
+  const sort = req.query.sort === 'desc' ? 'DESC' : 'ASC';
+  const allowedSortFields = ['id', 'name', 'department', 'createdAt', 'updatedAt'];
+  const sortBy = allowedSortFields.includes(req.query.sortBy) ? req.query.sortBy : 'id';
 
-        const teachers = await db.Teacher.findAll({
-            include: includeOptions,
-            limit: limit,
-            offset: offset,
-            order: [['createdAt', sort]]
-        });
+  try {
+    const total = await db.Teacher.count();
 
-        res.json({
-            meta: {
-                totalItems: total,
-                page: page,
-                totalPages: Math.ceil(total / limit),
-                limit: limit,
-                sort: sort.toLowerCase()
-            },
-            data: teachers
-        });
+    const teachers = await db.Teacher.findAll({
+      limit,
+      offset: (page - 1) * limit,
+      order: [[sortBy, sort]],
+      include: {
+        model: db.Course,
+        attributes: ['id', 'title', 'description'],
+      },
+      attributes: ['id', 'name', 'department', 'createdAt', 'updatedAt'],
+    });
 
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    res.json({
+      meta: {
+        totalItems: total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      },
+      data: teachers,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 /**
@@ -123,40 +166,74 @@ export const getAllTeachers = async (req, res) => {
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: integer }
+ *         schema:
+ *           type: integer
  *       - in: query
  *         name: populate
- *         schema: { type: string }
- *         description: Include related data (courses)
+ *         schema:
+ *           type: string
+ *           enum: [none, courses]
+ *           default: none
+ *         description: >
+ *           Use 'none' to skip courses or 'courses' to include all courses taught by this teacher.
  *     responses:
  *       200:
  *         description: Teacher found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 name:
+ *                   type: string
+ *                 department:
+ *                   type: string
+ *                 createdAt:
+ *                   type: string
+ *                 updatedAt:
+ *                   type: string
+ *                 Courses:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       title:
+ *                         type: string
+ *                       description:
+ *                         type: string
  *       404:
  *         description: Not found
  */
+
 export const getTeacherById = async (req, res) => {
-    try {
-        // Eager Loading
-        const populate = req.query.populate;
-        let includeOptions = [];
-        
-        if (populate) {
-            const populateArray = populate.split(',');
-            if (populateArray.includes('courses')) {
-                includeOptions.push(db.Course);
-            }
-        }
+  const { id } = req.params;
+  const populate = (req.query.populate || 'none').toLowerCase();
 
-        const teacher = await db.Teacher.findByPk(req.params.id, { 
-            include: includeOptions 
-        });
-        
-        if (!teacher) return res.status(404).json({ message: 'Not found' });
-        res.json(teacher);
+  const include = [];
 
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  if (populate === 'courses') {
+    include.push({
+      model: db.Course,
+      attributes: ['id', 'title', 'description'],
+    });
+  }
+
+  try {
+    const teacher = await db.Teacher.findByPk(id, {
+      include,
+      attributes: ['id', 'name', 'department', 'createdAt', 'updatedAt'],
+    });
+
+    if (!teacher) return res.status(404).json({ message: 'Not found' });
+
+    res.json(teacher);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 /**
@@ -169,7 +246,8 @@ export const getTeacherById = async (req, res) => {
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: integer }
+ *         schema:
+ *           type: integer
  *     requestBody:
  *       required: true
  *       content:
@@ -183,19 +261,23 @@ export const getTeacherById = async (req, res) => {
  *                 type: string
  *     responses:
  *       200:
- *         description: Updated
+ *         description: Teacher updated successfully
  *       404:
- *         description: Not found
+ *         description: Teacher not found
  */
+
 export const updateTeacher = async (req, res) => {
-    try {
-        const teacher = await db.Teacher.findByPk(req.params.id);
-        if (!teacher) return res.status(404).json({ message: 'Not found' });
-        await teacher.update(req.body);
-        res.json(teacher);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const { id } = req.params;
+    const teacher = await db.Teacher.findByPk(id);
+
+    if (!teacher) return res.status(404).json({ message: 'Not found' });
+
+    await teacher.update(req.body);
+    res.json(teacher);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
 /**
@@ -208,20 +290,27 @@ export const updateTeacher = async (req, res) => {
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: integer }
+ *         schema:
+ *           type: integer
  *     responses:
  *       200:
- *         description: Deleted
+ *         description: Teacher deleted successfully
  *       404:
- *         description: Not found
+ *         description: Teacher not found
  */
+
 export const deleteTeacher = async (req, res) => {
-    try {
-        const teacher = await db.Teacher.findByPk(req.params.id);
-        if (!teacher) return res.status(404).json({ message: 'Not found' });
-        await teacher.destroy();
-        res.json({ message: 'Deleted' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+  try {
+    const { id } = req.params;
+    const teacher = await db.Teacher.findByPk(id);
+
+    if (!teacher) {
+      return res.status(404).json({ message: 'Not found' });
     }
+
+    await teacher.destroy();
+    res.json({ message: 'Deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
